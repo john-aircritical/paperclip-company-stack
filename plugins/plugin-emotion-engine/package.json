@@ -1,0 +1,45 @@
+{
+  "name": "@accmedlink/plugin-emotion-engine",
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Persistent emotional states for Paperclip agents — decay, triggers, thresholds, and personality profiles",
+  "files": ["dist", "package.json"],
+  "scripts": {
+    "build": "node ./esbuild.config.mjs",
+    "build:watch": "node ./esbuild.config.mjs --watch",
+    "test": "npx vitest run"
+  },
+  "paperclipPlugin": {
+    "manifest": "./dist/manifest.js",
+    "worker": "./dist/worker.js",
+    "ui": "./dist/ui.js",
+    "slots": {
+      "emotion-engine-dashboard-widget": {
+        "type": "dashboardWidget",
+        "export": "DashboardWidget"
+      },
+      "emotion-engine-page": {
+        "type": "page",
+        "route": "emotions",
+        "export": "EmotionPage"
+      },
+      "emotion-engine-settings": {
+        "type": "settingsPage",
+        "export": "SettingsPage"
+      }
+    }
+  },
+  "dependencies": {
+    "@paperclipai/plugin-sdk": "file:.paperclip-sdk/paperclipai-plugin-sdk-1.0.0.tgz",
+    "@paperclipai/shared": "file:.paperclip-sdk/paperclipai-shared-0.3.1.tgz"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.0",
+    "esbuild": "^0.24.0",
+    "react": "^18.2.0",
+    "typescript": "^5.3.0",
+    "vitest": "^1.0.0"
+  },
+  "author": "ACC Medlink",
+  "license": "MIT"
+}
