@@ -1,0 +1,8 @@
+node_modules/
+dist/
+.env
+*.key
+paperclip-data/
+.paperclip-sdk/
+*.tgz
+.DS_Store
