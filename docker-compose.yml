@@ -1,0 +1,48 @@
+services:
+  stack:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${PAPERCLIP_PORT:-3101}:3101"
+      - "${DASHBOARD_PORT:-3102}:3102"
+    environment:
+      # Paperclip
+      HOST: "0.0.0.0"
+      PORT: "3101"
+      SERVE_UI: "true"
+      PAPERCLIP_HOME: "/paperclip"
+      PAPERCLIP_DEPLOYMENT_MODE: "authenticated"
+      PAPERCLIP_DEPLOYMENT_EXPOSURE: "private"
+      PAPERCLIP_PUBLIC_URL: "${PAPERCLIP_PUBLIC_URL:-http://localhost:3101}"
+      BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in .env}"
+      PAPERCLIP_SECRETS_STRICT_MODE: "true"
+
+      # API keys (passed to container, stored as Paperclip secrets on first run)
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:?Set ANTHROPIC_API_KEY in .env}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      GOOGLE_API_KEY: "${GOOGLE_API_KEY:-}"
+      GITHUB_API_KEY: "${GITHUB_API_KEY:-}"
+
+      # Dashboard
+      DASHBOARD_PORT: "3102"
+      HEADROOM_URL: "http://127.0.0.1:8787"
+      RTK_DB_PATH: "/home/node/.local/share/rtk/history.db"
+
+      # Container identity
+      USER_UID: "${USER_UID:-1000}"
+      USER_GID: "${USER_GID:-1000}"
+    volumes:
+      - paperclip-data:/paperclip
+      - claude-home:/home/node/.claude
+      - ./CLAUDE.md:/app/CLAUDE.md:ro
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3101/api/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+volumes:
+  paperclip-data:
+  claude-home:
