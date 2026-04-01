@@ -120,6 +120,16 @@ wait_for_healthy() {
 # Main
 # ═══════════════════════════════════════════════════════════════════════════════
 
+# ── Extract OAuth token from credentials file ──────────────────────────
+CREDS_FILE="/home/node/.claude/.credentials.json"
+if [ -f "$CREDS_FILE" ]; then
+  OAUTH_TOKEN=$(python3 -c "import json; print(json.load(open('$CREDS_FILE'))['claudeAiOauth']['accessToken'])" 2>/dev/null || true)
+  if [ -n "$OAUTH_TOKEN" ]; then
+    export ANTHROPIC_AUTH_TOKEN="$OAUTH_TOKEN"
+    echo "Claude OAuth token loaded from credentials file"
+  fi
+fi
+
 if [ -f "$SENTINEL" ]; then
   echo "Starting Paperclip (already provisioned)..."
   exec gosu node pnpm paperclipai run

@@ -135,10 +135,10 @@ async function main() {
     log("Storing API secrets...");
     const secrets = {};
     for (const [envKey, secretName] of [
-      ["ANTHROPIC_API_KEY", "anthropic-api-key"],
-      ["OPENAI_API_KEY", "openai-api-key"],
-      ["GOOGLE_API_KEY", "google-api-key"],
-      ["GITHUB_API_KEY", "github-api-key"],
+      ["PROVISION_ANTHROPIC_API_KEY", "anthropic-api-key"],
+      ["PROVISION_OPENAI_API_KEY", "openai-api-key"],
+      ["PROVISION_GOOGLE_API_KEY", "google-api-key"],
+      ["PROVISION_GITHUB_API_KEY", "github-api-key"],
     ]) {
       const val = process.env[envKey];
       if (!val) continue;

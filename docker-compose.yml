@@ -11,17 +11,21 @@ services:
       PAPERCLIP_HOME: "/paperclip"
       BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET}"
 
-      # API keys
-      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:?Set ANTHROPIC_API_KEY in .env}"
-      OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
-      GOOGLE_API_KEY: "${GOOGLE_API_KEY:-}"
-      GITHUB_API_KEY: "${GITHUB_API_KEY:-}"
+      # API keys — passed to provisioning only, NOT kept in runtime env
+      # Paperclip stores these as encrypted secrets, agents get them via secret_ref
+      PROVISION_ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:?Set ANTHROPIC_API_KEY in .env}"
+      PROVISION_OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
+      PROVISION_GOOGLE_API_KEY: "${GOOGLE_API_KEY:-}"
+      PROVISION_GITHUB_API_KEY: "${GITHUB_API_KEY:-}"
 
       # Admin account (created on first run)
       COMPANY_NAME: "${COMPANY_NAME:-AI Company}"
       ADMIN_NAME: "${ADMIN_NAME:-Admin}"
       ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@paperclip.local}"
       ADMIN_PASSWORD: "${ADMIN_PASSWORD:-paperclip-admin-2026}"
+
+      # Claude Code auth
+      CLAUDE_CODE_CREDENTIALS_STORE: "file"
 
       # Internal
       HEADROOM_URL: "http://127.0.0.1:8787"
@@ -33,6 +37,7 @@ services:
     volumes:
       - paperclip-data:/paperclip
       - claude-home:/home/node/.claude
+      - ~/.claude/.credentials.json:/home/node/.claude/.credentials.json:ro
       - ./CLAUDE.md:/app/CLAUDE.md:ro
     restart: unless-stopped
     healthcheck:
