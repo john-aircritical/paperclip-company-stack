@@ -1,7 +1,18 @@
 #!/bin/bash
 set -e
 
-# ── UID/GID adjustment (from upstream Paperclip entrypoint) ──────────────
+# ═══════════════════════════════════════════════════════════════════════════════
+# Paperclip Company Stack — Container Entrypoint
+#
+# First run: start authenticated, create admin, provision company+agents
+# Subsequent runs: just start Paperclip
+# ═══════════════════════════════════════════════════════════════════════════════
+
+SENTINEL="/paperclip/.setup-complete"
+INSTANCE_DIR="/paperclip/instances/default"
+PCLIP_PORT="${PORT:-9000}"
+
+# ── UID/GID adjustment ──────────────────────────────────────────────────
 
 PUID=${USER_UID:-1000}
 PGID=${USER_GID:-1000}
@@ -25,37 +36,151 @@ if [ "$changed" = "1" ]; then
     chown -R node:node /paperclip /home/node
 fi
 
-# ── Start Paperclip server ───────────────────────────────────────────────
+# ── Helper: write config.json ──────────────────────────────────────────
 
-echo "Starting Paperclip server..."
-gosu node node --import ./server/node_modules/tsx/dist/loader.mjs server/dist/index.js &
+write_config() {
+  local mode="$1"
+  local host="$2"
+  local port="${3:-9000}"
+
+  mkdir -p "$INSTANCE_DIR/secrets" "$INSTANCE_DIR/data/backups" "$INSTANCE_DIR/data/storage" "$INSTANCE_DIR/logs"
+  local NOW
+  NOW=$(date -u +%Y-%m-%dT%H:%M:%S.000Z)
+  cat > "$INSTANCE_DIR/config.json" <<CONF
+{
+  "\$meta": {
+    "version": 1,
+    "updatedAt": "${NOW}",
+    "source": "configure"
+  },
+  "database": {
+    "mode": "embedded-postgres",
+    "embeddedPostgresDataDir": "/paperclip/instances/default/db",
+    "embeddedPostgresPort": 54329,
+    "backup": {
+      "enabled": true,
+      "intervalMinutes": 60,
+      "retentionDays": 30,
+      "dir": "/paperclip/instances/default/data/backups"
+    }
+  },
+  "logging": {
+    "mode": "file",
+    "logDir": "/paperclip/instances/default/logs"
+  },
+  "server": {
+    "deploymentMode": "${mode}",
+    "exposure": "private",
+    "host": "${host}",
+    "port": ${port},
+    "serveUi": true
+  },
+  "auth": {
+    "baseUrlMode": "auto",
+    "disableSignUp": false
+  },
+  "storage": {
+    "provider": "local_disk",
+    "localDisk": {
+      "baseDir": "/paperclip/instances/default/data/storage"
+    }
+  },
+  "secrets": {
+    "provider": "local_encrypted",
+    "strictMode": false,
+    "localEncrypted": {
+      "keyFilePath": "/paperclip/instances/default/secrets/master.key"
+    }
+  }
+}
+CONF
+  chown -R node:node "$INSTANCE_DIR"
+}
+
+# ── Helper: wait for Paperclip healthy ─────────────────────────────────
+
+wait_for_healthy() {
+  local port="${1:-9000}"
+  local max="${2:-90}"
+  echo "Waiting for Paperclip on :${port}..."
+  for i in $(seq 1 "$max"); do
+    if curl -sf "http://localhost:${port}/api/health" > /dev/null 2>&1; then
+      echo "Paperclip ready on :${port}"
+      return 0
+    fi
+    if [ "$i" = "$max" ]; then
+      echo "ERROR: Paperclip failed to start within ${max} seconds"
+      return 1
+    fi
+    sleep 1
+  done
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# Main
+# ═══════════════════════════════════════════════════════════════════════════════
+
+if [ -f "$SENTINEL" ]; then
+  echo "Starting Paperclip (already provisioned)..."
+  exec gosu node pnpm paperclipai run
+fi
+
+# ══════════════════════════════════════════════════════════════════════════
+# FIRST RUN
+# ══════════════════════════════════════════════════════════════════════════
+
+echo ""
+echo "╔══════════════════════════════════════════════════════════╗"
+echo "║  First Run — Provisioning Paperclip Company Stack       ║"
+echo "╚══════════════════════════════════════════════════════════╝"
+echo ""
+
+# ── Start in authenticated mode ────────────────────────────────────────
+
+write_config "authenticated" "0.0.0.0" "$PCLIP_PORT"
+echo "Config written (authenticated, 0.0.0.0:${PCLIP_PORT})"
+
+echo "Starting Paperclip..."
+STARTUP_LOG="/tmp/paperclip-startup.log"
+gosu node pnpm paperclipai run 2>&1 | tee "$STARTUP_LOG" &
 PAPERCLIP_PID=$!
 
-# Wait for Paperclip to be healthy
-echo "Waiting for Paperclip to be ready..."
-for i in $(seq 1 60); do
-  if curl -sf http://localhost:3101/api/health > /dev/null 2>&1; then
-    echo "Paperclip server ready"
-    break
-  fi
-  if [ "$i" = "60" ]; then
-    echo "ERROR: Paperclip server failed to start within 60 seconds"
-    exit 1
-  fi
-  sleep 1
-done
+wait_for_healthy "$PCLIP_PORT" || exit 1
 
-# ── headroom wrap claude handles EVERYTHING ──────────────────────────────
-#   1. Starts Headroom proxy on :8787 (background)
-#   2. Downloads and installs RTK binary (if missing)
-#   3. Registers RTK hooks in Claude Code settings
-#   4. Sets ANTHROPIC_BASE_URL=http://127.0.0.1:8787
-#   5. Registers Headroom MCP (compress/retrieve/stats)
-#   6. Launches Claude Code with full compression active
-#
-# No separate RTK install, no separate proxy service, no manual hook setup.
-# Paperclip's claude_local adapter will use this wrapped Claude Code.
+# Extract bootstrap token from startup output
+BOOTSTRAP_TOKEN=$(grep -o 'pcp_bootstrap_[a-f0-9]*' "$STARTUP_LOG" | head -1 || true)
+if [ -n "$BOOTSTRAP_TOKEN" ]; then
+  echo "Bootstrap token captured: ${BOOTSTRAP_TOKEN:0:25}..."
+  echo "$BOOTSTRAP_TOKEN" > /paperclip/.bootstrap-token
+fi
 
-# Keep container alive — wait for Paperclip
-echo "Stack ready. Paperclip UI at :3101"
+# ── Create admin account and provision ─────────────────────────────────
+
+export ADMIN_NAME="${ADMIN_NAME:-Admin}"
+export ADMIN_EMAIL="${ADMIN_EMAIL:-admin@paperclip.local}"
+export ADMIN_PASSWORD="${ADMIN_PASSWORD:-paperclip-admin-2026}"
+export COMPANY_NAME="${COMPANY_NAME:-AI Company}"
+export PCLIP_PORT
+
+echo "Creating admin account and provisioning..."
+if gosu node node /app/scripts/provision.cjs; then
+  echo "Provisioning complete."
+else
+  echo "ERROR: Provisioning failed. Check logs above."
+  echo "The server is still running — you can provision manually through the UI."
+fi
+
+# ── Done ───────────────────────────────────────────────────────────────
+
+touch "$SENTINEL"
+
+echo ""
+echo "╔══════════════════════════════════════════════════════════╗"
+echo "║  Setup Complete!                                        ║"
+echo "║                                                         ║"
+echo "║  Paperclip UI: http://localhost:${PCLIP_PORT}"
+echo "║  Login: ${ADMIN_EMAIL}"
+echo "╚══════════════════════════════════════════════════════════╝"
+echo ""
+
 wait $PAPERCLIP_PID

@@ -6,11 +6,23 @@ set -e
 # Usage: ./add-secret.sh <name> <value>
 # ═══════════════════════════════════════════════════════════════════════════════
 
-API_URL="http://localhost:3101/api"
-TOKEN=$(cat /paperclip/.board-token 2>/dev/null)
+INTERNAL_PORT="${PAPERCLIP_INTERNAL_PORT:-${PORT:-9000}}"
+API_URL="http://localhost:${INTERNAL_PORT}/api"
+ORIGIN="http://localhost:${INTERNAL_PORT}"
+TOKEN=$(cat /paperclip/.board-token 2>/dev/null || true)
+COOKIE=$(cat /paperclip/.session-cookie 2>/dev/null || true)
+COMPANY_ID=$(cat /paperclip/.company-id 2>/dev/null || true)
 
-if [ -z "$TOKEN" ]; then
-  echo "ERROR: Run setup.sh first (missing token)"
+# Build auth args with CSRF origin headers
+AUTH_ARGS=(-H "Origin: $ORIGIN" -H "Referer: $ORIGIN/")
+if [ -n "$TOKEN" ]; then
+  AUTH_ARGS+=(-H "Authorization: Bearer $TOKEN")
+elif [ -n "$COOKIE" ]; then
+  AUTH_ARGS+=(-H "Cookie: $COOKIE")
+fi
+
+if [ -z "$COMPANY_ID" ]; then
+  echo "ERROR: Run setup first (missing company ID)"
   exit 1
 fi
 
@@ -23,8 +35,8 @@ if [ -z "$NAME" ] || [ -z "$VALUE" ]; then
   exit 1
 fi
 
-resp=$(curl -sf -X POST "$API_URL/v1/secrets" \
-  -H "Authorization: Bearer $TOKEN" \
+resp=$(curl -sf -X POST "$API_URL/companies/$COMPANY_ID/secrets" \
+  "${AUTH_ARGS[@]}" \
   -H "Content-Type: application/json" \
   -d "{\"name\": \"$NAME\", \"value\": \"$VALUE\"}" 2>&1) || {
   echo "ERROR: Failed to store secret: $resp"

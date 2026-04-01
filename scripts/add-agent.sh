@@ -6,13 +6,24 @@ set -e
 # Usage: ./add-agent.sh --template <role> --name <name> [--reports-to <agent-name>]
 # ═══════════════════════════════════════════════════════════════════════════════
 
-API_URL="http://localhost:3101/api"
-TOKEN=$(cat /paperclip/.board-token 2>/dev/null)
-COMPANY_ID=$(cat /paperclip/.company-id 2>/dev/null)
+INTERNAL_PORT="${PAPERCLIP_INTERNAL_PORT:-${PORT:-9000}}"
+API_URL="http://localhost:${INTERNAL_PORT}/api"
+ORIGIN="http://localhost:${INTERNAL_PORT}"
+TOKEN=$(cat /paperclip/.board-token 2>/dev/null || true)
+COOKIE=$(cat /paperclip/.session-cookie 2>/dev/null || true)
+COMPANY_ID=$(cat /paperclip/.company-id 2>/dev/null || true)
 SECRETS_FILE="/paperclip/.secret-ids.json"
 
-if [ -z "$TOKEN" ] || [ -z "$COMPANY_ID" ]; then
-  echo "ERROR: Run setup.sh first"
+# Build auth args with CSRF origin headers
+AUTH_ARGS=(-H "Origin: $ORIGIN" -H "Referer: $ORIGIN/")
+if [ -n "$TOKEN" ]; then
+  AUTH_ARGS+=(-H "Authorization: Bearer $TOKEN")
+elif [ -n "$COOKIE" ]; then
+  AUTH_ARGS+=(-H "Cookie: $COOKIE")
+fi
+
+if [ -z "$COMPANY_ID" ]; then
+  echo "ERROR: Run setup first (missing company ID)"
   exit 1
 fi
 
@@ -71,8 +82,8 @@ with open('$SECRETS_FILE') as f:
 # Look up reports_to agent ID
 REPORTS_TO_ID=""
 if [ -n "$REPORTS_TO" ]; then
-  REPORTS_TO_ID=$(curl -sf "$API_URL/v1/companies/$COMPANY_ID/agents" \
-    -H "Authorization: Bearer $TOKEN" 2>/dev/null | \
+  REPORTS_TO_ID=$(curl -sf "$API_URL/companies/$COMPANY_ID/agents" \
+    "${AUTH_ARGS[@]}" 2>/dev/null | \
     python3 -c "
 import sys, json
 agents = json.load(sys.stdin)
@@ -90,6 +101,7 @@ data = {
     'name': '$AGENT_NAME',
     'adapter': {
         'type': 'claude_local',
+        'cwd': '/home/node/workspaces/$(echo "$TEMPLATE" | tr '[:upper:]' '[:lower:]' | tr ' ' '-')',
         'command': 'headroom wrap claude',
         'model': '$MODEL',
         'env': {
@@ -108,8 +120,8 @@ if '$REPORTS_TO_ID':
 print(json.dumps(data))
 ")
 
-resp=$(curl -sf -X POST "$API_URL/v1/companies/$COMPANY_ID/agents" \
-  -H "Authorization: Bearer $TOKEN" \
+resp=$(curl -sf -X POST "$API_URL/companies/$COMPANY_ID/agents" \
+  "${AUTH_ARGS[@]}" \
   -H "Content-Type: application/json" \
   -d "$PAYLOAD" 2>&1) || {
   echo "ERROR: Failed to create agent: $resp"

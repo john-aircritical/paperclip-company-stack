@@ -18,14 +18,13 @@ FROM paperclip-base AS production
 # Note: paperclip-base is built from upstream Paperclip Dockerfile
 # which already includes: Node.js, Claude Code, Codex, git, ripgrep, gh CLI
 
-# Install Python (for Headroom)
-RUN apt-get update && apt-get install -y python3-venv python3-pip && \
+# Install Python (for Headroom) and gosu (for UID/GID switching)
+RUN apt-get update && apt-get install -y python3-venv python3-pip gosu && \
     rm -rf /var/lib/apt/lists/*
 
 USER node
 
 # Install Headroom (includes RTK auto-install + Headroom MCP + proxy)
-# This is the ONLY compression tool we need to install.
 # `headroom wrap claude` handles everything:
 #   - Downloads and installs RTK binary automatically
 #   - Registers RTK hooks in Claude Code settings
@@ -34,6 +33,7 @@ USER node
 #   - Registers Headroom MCP (compress/retrieve/stats)
 RUN python3 -m venv /home/node/.headroom-venv && \
     /home/node/.headroom-venv/bin/pip install headroom-ai && \
+    mkdir -p /home/node/.local/bin && \
     ln -sf /home/node/.headroom-venv/bin/headroom /home/node/.local/bin/headroom
 
 # Copy master CLAUDE.md
@@ -56,9 +56,11 @@ RUN chmod +x /app/setup.sh /app/scripts/*.sh
 # Ensure PATH includes local bin
 ENV PATH="/home/node/.local/bin:/home/node/.headroom-venv/bin:$PATH"
 
-# Entrypoint script starts Paperclip + headroom wrap claude
+# Entrypoint script handles two-phase provisioning
 COPY --chown=node:node scripts/entrypoint.sh /usr/local/bin/stack-entrypoint.sh
 RUN chmod +x /usr/local/bin/stack-entrypoint.sh
+
+EXPOSE 9000
 
 USER root
 ENTRYPOINT ["/usr/local/bin/stack-entrypoint.sh"]

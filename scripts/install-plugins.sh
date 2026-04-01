@@ -4,14 +4,21 @@ set -e
 # ═══════════════════════════════════════════════════════════════════════════════
 # Install Plugins — Registers both plugins with Paperclip
 # Idempotent: safe to re-run
+# Supports no-auth mode (local_trusted) and authenticated mode
 # ═══════════════════════════════════════════════════════════════════════════════
 
-API_URL="http://localhost:3101/api"
-TOKEN=$(cat /paperclip/.board-token 2>/dev/null)
+INTERNAL_PORT="${PAPERCLIP_INTERNAL_PORT:-${PORT:-9000}}"
+API_URL="http://localhost:${INTERNAL_PORT}/api"
+ORIGIN="http://localhost:${INTERNAL_PORT}"
+TOKEN=$(cat /paperclip/.board-token 2>/dev/null || true)
+COOKIE=$(cat /paperclip/.session-cookie 2>/dev/null || true)
 
-if [ -z "$TOKEN" ]; then
-  echo "ERROR: Run setup.sh first (missing token)"
-  exit 1
+# Build auth args with CSRF origin headers
+AUTH_ARGS=(-H "Origin: $ORIGIN" -H "Referer: $ORIGIN/")
+if [ -n "$TOKEN" ]; then
+  AUTH_ARGS+=(-H "Authorization: Bearer $TOKEN")
+elif [ -n "$COOKIE" ]; then
+  AUTH_ARGS+=(-H "Cookie: $COOKIE")
 fi
 
 install_plugin() {
@@ -28,15 +35,15 @@ install_plugin() {
     return
   fi
 
-  # Install via API (plugin install endpoint)
+  # Install via API
   local resp
-  resp=$(curl -sf -X POST "$API_URL/v1/plugins/install" \
-    -H "Authorization: Bearer $TOKEN" \
+  resp=$(curl -sf -X POST "$API_URL/plugins/install" \
+    "${AUTH_ARGS[@]}" \
     -H "Content-Type: application/json" \
     -d "{\"source\": \"local\", \"path\": \"$path\"}" 2>&1) || {
     # Try alternative: install by npm name
-    resp=$(curl -sf -X POST "$API_URL/v1/plugins/install" \
-      -H "Authorization: Bearer $TOKEN" \
+    resp=$(curl -sf -X POST "$API_URL/plugins/install" \
+      "${AUTH_ARGS[@]}" \
       -H "Content-Type: application/json" \
       -d "{\"name\": \"$name\"}" 2>&1) || {
       echo "  [WARN] Could not install $name via API. Install manually in Paperclip UI."

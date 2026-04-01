@@ -4,32 +4,30 @@ services:
       context: .
       dockerfile: Dockerfile
     ports:
-      - "${PAPERCLIP_PORT:-3101}:3101"
-      - "${DASHBOARD_PORT:-3102}:3102"
+      - "${PAPERCLIP_PORT:-9000}:9000"
     environment:
       # Paperclip
-      HOST: "0.0.0.0"
-      PORT: "3101"
-      SERVE_UI: "true"
+      PORT: "9000"
       PAPERCLIP_HOME: "/paperclip"
-      PAPERCLIP_DEPLOYMENT_MODE: "authenticated"
-      PAPERCLIP_DEPLOYMENT_EXPOSURE: "private"
-      PAPERCLIP_PUBLIC_URL: "${PAPERCLIP_PUBLIC_URL:-http://localhost:3101}"
-      BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET:?Set BETTER_AUTH_SECRET in .env}"
-      PAPERCLIP_SECRETS_STRICT_MODE: "true"
+      BETTER_AUTH_SECRET: "${BETTER_AUTH_SECRET}"
 
-      # API keys (passed to container, stored as Paperclip secrets on first run)
+      # API keys
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:?Set ANTHROPIC_API_KEY in .env}"
       OPENAI_API_KEY: "${OPENAI_API_KEY:-}"
       GOOGLE_API_KEY: "${GOOGLE_API_KEY:-}"
       GITHUB_API_KEY: "${GITHUB_API_KEY:-}"
 
-      # Dashboard
-      DASHBOARD_PORT: "3102"
+      # Admin account (created on first run)
+      COMPANY_NAME: "${COMPANY_NAME:-AI Company}"
+      ADMIN_NAME: "${ADMIN_NAME:-Admin}"
+      ADMIN_EMAIL: "${ADMIN_EMAIL:-admin@paperclip.local}"
+      ADMIN_PASSWORD: "${ADMIN_PASSWORD:-paperclip-admin-2026}"
+
+      # Internal
       HEADROOM_URL: "http://127.0.0.1:8787"
       RTK_DB_PATH: "/home/node/.local/share/rtk/history.db"
 
-      # Container identity
+      # Identity
       USER_UID: "${USER_UID:-1000}"
       USER_GID: "${USER_GID:-1000}"
     volumes:
@@ -38,7 +36,7 @@ services:
       - ./CLAUDE.md:/app/CLAUDE.md:ro
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:3101/api/health || exit 1"]
+      test: ["CMD-SHELL", "curl -sf http://localhost:${PORT:-9000}/api/health || exit 1"]
       interval: 30s
       timeout: 10s
       retries: 3

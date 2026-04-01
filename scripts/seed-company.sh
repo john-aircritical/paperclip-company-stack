@@ -1,18 +1,30 @@
 #!/bin/bash
 set -e
 
-# ═══════════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════════
 # Seed Company — Creates all 11 agents via Paperclip API
 # Idempotent: skips agents that already exist
-# ═══════════════════════════════════════════════════════════════════════════════
+# Supports no-auth mode (local_trusted) and authenticated mode
+# ══════════════════════════════════════════════════════════════════════════════
 
-API_URL="http://localhost:3101/api"
-TOKEN=$(cat /paperclip/.board-token 2>/dev/null)
-COMPANY_ID=$(cat /paperclip/.company-id 2>/dev/null)
+INTERNAL_PORT="${PAPERCLIP_INTERNAL_PORT:-${PORT:-9000}}"
+API_URL="http://localhost:${INTERNAL_PORT}/api"
+ORIGIN="http://localhost:${INTERNAL_PORT}"
+TOKEN=$(cat /paperclip/.board-token 2>/dev/null || true)
+COOKIE=$(cat /paperclip/.session-cookie 2>/dev/null || true)
+COMPANY_ID=$(cat /paperclip/.company-id 2>/dev/null || true)
 SECRETS_FILE="/paperclip/.secret-ids.json"
 
-if [ -z "$TOKEN" ] || [ -z "$COMPANY_ID" ]; then
-  echo "ERROR: Run setup.sh first (missing token or company ID)"
+# Build auth args with CSRF origin headers
+AUTH_ARGS=(-H "Origin: $ORIGIN" -H "Referer: $ORIGIN/")
+if [ -n "$TOKEN" ]; then
+  AUTH_ARGS+=(-H "Authorization: Bearer $TOKEN")
+elif [ -n "$COOKIE" ]; then
+  AUTH_ARGS+=(-H "Cookie: $COOKIE")
+fi
+
+if [ -z "$COMPANY_ID" ]; then
+  echo "ERROR: Run setup first (missing company ID)"
   exit 1
 fi
 
@@ -29,7 +41,7 @@ if [ -z "$ANTHROPIC_SECRET_ID" ]; then
   exit 1
 fi
 
-# ── Agent creation helper ────────────────────────────────────────────────────
+# ── Agent creation helper ────────────────────────────────────────────────
 
 create_agent() {
   local name="$1"
@@ -40,8 +52,8 @@ create_agent() {
 
   # Check if agent already exists
   local existing
-  existing=$(curl -sf "$API_URL/v1/companies/$COMPANY_ID/agents" \
-    -H "Authorization: Bearer $TOKEN" 2>/dev/null | \
+  existing=$(curl -sf "$API_URL/companies/$COMPANY_ID/agents" \
+    "${AUTH_ARGS[@]}" 2>/dev/null | \
     python3 -c "
 import sys, json
 agents = json.load(sys.stdin)
@@ -56,12 +68,10 @@ for a in agents:
     return
   fi
 
-  # Build instruction files path
-  local instructions_dir="/app/company/agents/$slug"
-
   # Build adapter config
   local adapter_config="{
     \"type\": \"claude_local\",
+    \"cwd\": \"/home/node/workspaces/$slug\",
     \"command\": \"headroom wrap claude\",
     \"model\": \"$model\",
     \"env\": {
@@ -74,12 +84,11 @@ for a in agents:
   }"
 
   # Build reports_to JSON
-  local reports_json="null"
+  local reports_json="None"
   if [ -n "$reports_to" ]; then
-    # Look up the reports_to agent ID
     local parent_id
-    parent_id=$(curl -sf "$API_URL/v1/companies/$COMPANY_ID/agents" \
-      -H "Authorization: Bearer $TOKEN" 2>/dev/null | \
+    parent_id=$(curl -sf "$API_URL/companies/$COMPANY_ID/agents" \
+      "${AUTH_ARGS[@]}" 2>/dev/null | \
       python3 -c "
 import sys, json
 agents = json.load(sys.stdin)
@@ -104,17 +113,16 @@ data = {
         'schedule': '$heartbeat'
     },
     'reportsTo': $reports_json,
-    'instructionsDir': '$instructions_dir'
+    'instructionsDir': '/app/company/agents/$slug'
 }
-# Remove None/null reportsTo
 if data['reportsTo'] is None:
     del data['reportsTo']
 print(json.dumps(data))
 ")
 
   local resp
-  resp=$(curl -sf -X POST "$API_URL/v1/companies/$COMPANY_ID/agents" \
-    -H "Authorization: Bearer $TOKEN" \
+  resp=$(curl -sf -X POST "$API_URL/companies/$COMPANY_ID/agents" \
+    "${AUTH_ARGS[@]}" \
     -H "Content-Type: application/json" \
     -d "$payload" 2>&1) || {
     echo "  [FAIL] $name: $resp"
@@ -126,7 +134,7 @@ print(json.dumps(data))
   echo "  [created] $name → $agent_id"
 }
 
-# ── Create agents in hierarchy order ─────────────────────────────────────────
+# ── Create agents in hierarchy order ─────────────────────────────────────
 
 echo "Creating agents for company $COMPANY_ID..."
 echo ""
