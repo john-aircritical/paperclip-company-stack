@@ -37,7 +37,7 @@ services:
     volumes:
       - paperclip-data:/paperclip
       - claude-home:/home/node/.claude
-      - ~/.claude/.credentials.json:/home/node/.claude/.credentials.json:ro
+      - ~/.claude/.credentials.json:/paperclip/.claude/.credentials.json:ro
       - ./CLAUDE.md:/app/CLAUDE.md:ro
     restart: unless-stopped
     healthcheck:

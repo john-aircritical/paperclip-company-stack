@@ -120,15 +120,15 @@ wait_for_healthy() {
 # Main
 # ═══════════════════════════════════════════════════════════════════════════════
 
-# ── Extract OAuth token from credentials file ──────────────────────────
-CREDS_FILE="/home/node/.claude/.credentials.json"
-if [ -f "$CREDS_FILE" ]; then
-  OAUTH_TOKEN=$(python3 -c "import json; print(json.load(open('$CREDS_FILE'))['claudeAiOauth']['accessToken'])" 2>/dev/null || true)
-  if [ -n "$OAUTH_TOKEN" ]; then
-    export ANTHROPIC_AUTH_TOKEN="$OAUTH_TOKEN"
-    echo "Claude OAuth token loaded from credentials file"
-  fi
+# ── Ensure Claude Code can find credentials ────────────────────────────
+# HOME=/paperclip in this container, so Claude looks at /paperclip/.claude/
+# The credentials file is bind-mounted from the host via docker-compose.
+if [ -f "/paperclip/.claude/.credentials.json" ]; then
+  echo "Claude credentials found at /paperclip/.claude/.credentials.json"
 fi
+
+# Ensure no ANTHROPIC_API_KEY leaks into agent processes
+unset ANTHROPIC_API_KEY 2>/dev/null || true
 
 if [ -f "$SENTINEL" ]; then
   echo "Starting Paperclip (already provisioned)..."
